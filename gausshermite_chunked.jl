@@ -1,4 +1,3 @@
-
 export GaussHermiteChunkedLSF
 
 """
@@ -108,3 +107,23 @@ function initialize_templates!(templates::Dict{String, Any}, lsf::GaussHermiteCh
 end
 
 enforce_positivity(lsf::GaussHermiteChunkedLSF) = true
+
+
+function convolve_spectrum(lsf::GaussHermiteChunkedLSF, templates::Dict{String, Any}, params::Parameters, model_spec::AbstractVector{<:Real}, data::SpecData1D)
+    kernelarray = build(lsf, templates, params, data)
+    model_specc_chunk = Vector{Float64}(undef, lsf.Nchunks)
+    datalen = length(data.spec)
+    padding = # chunkpadding value
+    # chunks overlap by small amount, and average in the overlap
+    for j=1:lsf.Nchunks
+       chunki = 
+       chunkf = 
+       # enforce checking that not going past edges of array with chunks
+       model_spec_chunk = model_spec[chunki:chunkf]
+       model_specc_chunk[j] = convolve1d(model_spec_chunk, kernelarray[j])
+    end
+    model_specc = #reconstructed from the chunks.  average in overlap.
+    return model_specc
+end
+
+
