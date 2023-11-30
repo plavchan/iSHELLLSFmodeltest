@@ -113,6 +113,7 @@ function convolve_spectrum(lsf::GaussHermiteChunkedLSF, templates::Dict{String, 
     kernelarray = build(lsf, templates, params, data)
     model_specc_chunk = Vector{Float64}(undef, lsf.Nchunks)
     datalen = length(data.spec)
+    # find min and max valid data for the bounds of the chunking.
     padding = # chunkpadding value
     # chunks overlap by small amount, and average in the overlap
     for j=1:lsf.Nchunks
