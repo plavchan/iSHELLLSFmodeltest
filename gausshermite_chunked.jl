@@ -1,52 +1,66 @@
 
-export GaussHermiteLSF
+export GaussHermiteChunkedLSF
 
 """
-An LSF model determined by a summation of Gaussian functions with identical widths and Hermite Polynomials as coefficients.
+An LSF model determined by a summation of Gaussian functions with identical widths and Hermite Polynomials as coefficients.  The LSF is chunked into N chunks across the order to allow for a variable LSF while not 
 
 # Fields
 - `deg::Int`: The degree of the Hermite-Gaussian function. `deg=0` corresponds to a single Gaussian.
 - `bounds::Vector{Vector{Float64}}`: The bounds on each of the the LSF coeffs.
 - `zero_centroid::Bool` Whether or not to force the centroid of the kernel to be zero in order to lift the degeneracy between the LSF and wavelength solution.
+- `Nchunks::Int:` the number of chunks for the LSF model
 
 # Constructors
-    GaussHermiteLSF(;deg::Int, bounds::NamedTuple)
+    GaussHermiteChunkedLSF(;deg::Int, bounds::NamedTuple)
 """
-struct GaussHermiteLSF <: LSFModel
+struct GaussHermiteChunkedLSF <: LSFModel
     deg::Int
     bounds::Vector{<:Vector{<:Real}}
+    Nchunks::Int
 end
 
-function GaussHermiteLSF(;deg::Int=0, bounds::Vector{<:Vector{<:Real}})
+function GaussHermiteChunkedLSF(;deg::Int=0, bounds::Vector{<:Vector{<:Real}}, Nchunks::Int=1)
     @assert length(bounds) >= deg + 1
-    return GaussHermiteLSF(deg, bounds)
+    return GaussHermiteChunkedLSF(deg, bounds,Nchunks)
 end
 
 # Primary build method
-function build(lsf::GaussHermiteLSF, coeffs::Vector{<:Real}, λlsf::AbstractVector{<:Real}; zero_centroid=nothing)
-    σ = coeffs[1]
-    herm = gauss_hermite(λlsf ./ σ, lsf.deg)
-    kernel = herm[:, 1]
-    if lsf.deg == 0  # just a Gaussian
-        return kernel ./ sum(kernel)
-    end
-    for k=2:lsf.deg+1
-        kernel .+= coeffs[k] .* herm[:, k]
+function build(lsf::GaussHermiteChunkedLSF, coeffs::Vector{Vector{<:Real}}, λlsf::AbstractVector{<:Real}; zero_centroid=nothing)
+    kernelarray = Vector{Vector{Float64}}(undef, lsf.Nchunks)
+    for j in range(1, lsf.Nchunks)
+        σ = coeffs[j][1]
+        herm = gauss_hermite(λlsf[j] ./ σ, lsf.deg)
+        kernelarray[j] = herm[:, 1]
+        if lsf.deg == 0  # just a Gaussian
+            return kernelarray[j] ./ sum(kernelarray[j])
+        end
+        for k=2:lsf.deg+1
+            kernelarray[j] .+= coeffs[j][k] .* herm[:, k]
+        end
+        kernelarray[j] ./= sum(kernelarray[j])
     end
     if isnothing(zero_centroid)
         zero_centroid = lsf.deg > 0
     end
+
     if zero_centroid
-        λcen = sum(abs.(kernel) .* λlsf) ./ sum(abs.(kernel))
-        return build(lsf, coeffs, λlsf .+ λcen, zero_centroid=false)
+        λlsfshifted = deepcopy(λlsf)
+        for j in range(1, lsf.Nchunks)
+            λcen = sum(abs.(kernelarray[j]) .* λlsf[j]) ./ sum(abs.(kernelarray[j]))
+            λlsfshifted[j] .+= λcen
+        end 
+     	  return build(lsf, coeffs, λlsfshifted, zero_centroid=false)
     end
-    kernel ./= sum(kernel)
-    return kernel
+    return kernelarray
 end
 
 # API Build method
-function build(lsf::GaussHermiteLSF, templates::Dict{String, Any}, params::Parameters, ::SpecData1D; zero_centroid=nothing)
-    coeffs = [params["a$i"].value for i=0:lsf.deg]
+function build(lsf::GaussHermiteChunkedLSF, templates::Dict{String, Any}, params::Parameters, ::SpecData1D; zero_centroid=nothing)
+    coeffs = Vector{Vector{Float64}}(undef, lsf.Nchunks)
+    # this pulls the named variables out of the params array
+    for j in range(1, lsf.Nchunks)
+        coeffs[j] = [params["a$j$i"].value for i=0:lsf.deg]
+    end
     return build(lsf, coeffs, templates["lsf"].λlsf; zero_centroid)
 end
 
@@ -68,27 +82,29 @@ function gauss_hermite(x, deg)
     end
 end
 
-function initialize_params!(params::Parameters, lsf::GaussHermiteLSF, ::Dict{String, Any}, ::SpecData1D)
-    for i=0:lsf.deg
-        t = lsf.bounds[i+1]
-        lbi = t[1]
-        ubi = t[2]
-        ai = (lbi + ubi) / 2
-        if ai == 0
-            ai = 0.1 * (ubi - lbi)
+function initialize_params!(params::Parameters, lsf::GaussHermiteChunkedLSF, ::Dict{String, Any}, ::SpecData1D)
+    for j=1:lsf.Nchunks
+        for i=0:lsf.deg
+            t = lsf.bounds[i+1] # if needed in future, swap this to lsf.bounds[j][i+1]
+            lbi = t[1]
+            ubi = t[2]
+            ai = (lbi + ubi) / 2
+            if ai == 0
+                ai = 0.1 * (ubi - lbi)
+            end
+            params["a$j$i"] = Parameter(value=ai, lower_bound=lbi, upper_bound=ubi)
         end
-        params["a$i"] = Parameter(value=ai, lower_bound=lbi, upper_bound=ubi)
     end
 
     # Return
     return params
 end
 
-function initialize_templates!(templates::Dict{String, Any}, lsf::GaussHermiteLSF, ::SpecSeries1D)
+function initialize_templates!(templates::Dict{String, Any}, lsf::GaussHermiteChunkedLSF, ::SpecSeries1D)
     δλ = templates["λ"][3] - templates["λ"][2]
     λlsf = get_lsfkernel_λgrid(lsf.bounds[1][2] * 2.355, δλ)
-    templates["lsf"] = (;λlsf)
+    templates["lsf"] = (;λlsf = [copy(λlsf) for l in lsf.Nchunks])
     return templates
 end
 
-enforce_positivity(lsf::GaussHermiteLSF) = true
+enforce_positivity(lsf::GaussHermiteChunkedLSF) = true
