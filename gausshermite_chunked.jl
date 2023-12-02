@@ -3,6 +3,9 @@ export GaussHermiteChunkedLSF
 """
 An LSF model determined by a summation of Gaussian functions with identical widths and Hermite Polynomials as coefficients.  The LSF is chunked into N chunks across the order to allow for a variable LSF while not 
 
+call:
+lsf=GaussHermiteChunkedLSF(deg=2, bounds=[ishell.LSFσ_BOUNDS_KGAS_0375, [-0.2, 0.2], [-0.2, 0.2], [-0.1, 0.1], [-0.1, 0.1]], n_chunks=5),
+
 # Fields
 - `deg::Int`: The degree of the Hermite-Gaussian function. `deg=0` corresponds to a single Gaussian.
 - `bounds::Vector{Vector{Float64}}`: The bounds on each of the the LSF coeffs.
