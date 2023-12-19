@@ -15,25 +15,13 @@ function GaussHermitePolyChunkedLSF(;deg::Int=0, bounds::Vector{<:Vector{<:Real}
 end
 
 # Primary build method
-function build(lsf::GaussHermitePolyChunkedLSF, coeffs::Vector{<:Vector{<:Real}}, λlsf::AbstractVector{<:Real}, chunks::AbstractVector{<:Real}, j::Int; zero_centroid=nothing)
+function build(lsf::GaussHermitePolyChunkedLSF, coeffs::Vector{<:Vector{<:Real}}, λlsf::AbstractVector{<:Real}, j::Int; zero_centroid=nothing)
     # create polynomial for sigmas across the order
     σpoly=Polynomial(coeffs[:,1])
-
-    # option 1 - work the polynomial in wavelength space - con: does not translate across orders well --> normalize by center of order wavelength
-    # find the center wavelength of the order's chunks in wavelength; probably an easier way to do this
-    #if iseven(lsf.n_chunks)
-    #   jmid = lsf.n_chunks/2
-    #   λmid = (chunks[jmid][2]+chunks[jmid+1][1])/2
-    #else
-    #   jmid = floor(lsf.n_chunks/2)
-    #   λmid = (chunks[jmid][1]+chunks[jmid][2])/2
-    # find the wavelength center of the chunk we are working on
-    # λchunk = (chunks[j][2]+chunks[j][1])/2
-    # σ = evaluate(σpoly,(λchunk-λmid)/λmid)
-    
-    # option 2 - work the polynomial in chunk number space - pro - can drop passing the chunks array; con - does not translate well when changing n_chunks --> normalize by n_chunks from -0.5..0.5
+    # work the polynomial in chunk number space - pro - can drop passing the chunks array; con - does not translate well when changing n_chunks --> normalize by n_chunks from -0.5..0.5
     njmid = 0.5*(1+1/lsf.n_chunks) # middle between (1 and N_chunks) and then divided by Nchunks
-    σ = evaluate(σpoly,(j/lsf.n_chunks-njmid)/(1/lsf.n_chunks-1)) 
+    x=(j/lsf.n_chunks-njmid)/(1/lsf.n_chunks-1)
+    σ = evaluate(σpoly,x) 
     # subtracting njmid~0.5 centers 0 on middle of order, for even and odd chunks. then, in this space "x" runs from -0.5(1/Nchunks-1) to 0.5(1/Nchunks-1). Next to eliminate the dependence on nchunks, we have to renormalize that to run from -0.5--0.5, so lastly we divide by (1/lsf.n_chunks-1) to rescale from -0.5..0.5, and now the polynomial "x" axis range is independent of nchunks and centered on zero.
     herm = gauss_hermite(λlsf ./ σ, lsf.deg)
     kernel = herm[:, 1]
@@ -42,11 +30,8 @@ function build(lsf::GaussHermitePolyChunkedLSF, coeffs::Vector{<:Vector{<:Real}}
     end
 
     for k=2:lsf.deg+1
-        σpoly=Polynomial(coeffs[:,k])
-        # option 1 - work in λchunk space
-        # hk = evaluate(polyk,(λchunk-λmid)/λmid)
-        # option 2 - work in n_chunks space for the polynomial, instead of lambda; simpler
-        hk = evaluate(polyk,j/lsf.n_chunks-njmid). # njmid~0.5 centers 0 on middle of order
+        polyk=Polynomial(coeffs[:,k])
+        hk = evaluate(polyk,x)
         kernel .+=  hk .* herm[:, k]
     end
     if isnothing(zero_centroid)
@@ -65,7 +50,7 @@ function build(lsf::GaussHermitePolyChunkedLSF, templates::Dict{String, Any}, pa
     kernels = Vector{Vector{Float64}}(undef, length(templates["lsf"].chunks))
     for j=1:length(kernels)
         coeffs = [[params["a_$(j)_$(i)"].value for i=0:lsf.deg] for k=0:lsf.order_deg]
-        kernels[j] = build(lsf, coeffs, templates["lsf"].λlsf, templates["lsf"].chunks, j; zero_centroid) # templates["lsf"].chunks not needed if we work in n_chunks space for the polynomial for the LSF params
+        kernels[j] = build(lsf, coeffs, templates["lsf"].λlsf, j; zero_centroid) 
     end
     return kernels
 end
