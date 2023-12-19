@@ -78,14 +78,16 @@ function initialize_params!(params::Parameters, lsf::GaussHermitePolyChunkedLSF,
         for i=0:lsf.deg
             # decay/tighten bounds as one goes to higher order terms in the polynomial for each deg of the hermite polynomial, on general principle as you go to higher order terms in a polynomial fits the coefficients shrink because the values are getting raised to the jth power. May not work.  
             hardness=1.0 # adjust to make the polynomial coefficient bounds shrink faster or slower
+            t = lsf.bounds[i+1]
             if j == 0
-                decayfactor=1
+                lbi = t[1]
+                ubi = t[2]
             else
-                decayfactor = 1/(hardness*j)  
-            end
-            t = lsf.bounds[i+1].^decayfactor
-            lbi = t[1]
-            ubi = t[2]
+                decayfactor = 1/(hardness*j) 
+                diff = abs(t[2]-t[1]) 
+                lbi = -diff^decayfactor
+                ubi = +diff^decayfactor
+            end        
             ai = (lbi + ubi) / 2
             if ai == 0
                 ai = 0.1 * (ubi - lbi)
